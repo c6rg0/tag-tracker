@@ -35,8 +35,7 @@ def createTable():
 
     tableCreationQuery = """
         CREATE TABLE PACKAGES (
-            name TEXT PRIMARY KEY,
-            repo TEXT NOT NULL,
+            repo TEXT PRIMARY KEY,
             version INT,
             lastUpdate '%F' 
         );
@@ -47,13 +46,32 @@ def createTable():
     connectionObj.close()
 
 
-def insertRepoData(latestTag):
-    pass
+def insertRepoData(repo, latestTag):
+    dbLoc = Path("./packages.db")
+    if not dbLoc.is_file():
+        createTable()
+
+    print("> Populating database with new entry...")
+
+    connectionObj = sqlite3.connect('packages.db')
+    cursorObj = connectionObj.cursor()
+
+    dataInsertQuery = """
+        INSERT INTO PACKAGES 
+        (repo, version)
+        VALUES (?, ?);
+    """
+
+    cursorObj.execute(dataInsertQuery, (repo, latestTag))
+    connectionObj.close()
+
+    print(">> Successfully inserted data!\n")
 
 
-def fetchTag(repoUrl):
-    repoUrl = f"{repoUrl}/releases"
-    releasesApi = requests.get(repoUrl)
+def fetchTag(repo, repoUrl):
+    print("> Fetching latest release tag...")
+    releasesUrl = f"{repoUrl}/releases"
+    releasesApi = requests.get(releasesUrl)
 
     if (releasesApi.status_code != 200):
         sys.exit(">> Repo doesn't have tags to add :(\n")
@@ -61,37 +79,45 @@ def fetchTag(repoUrl):
     releases = releasesApi.json()
 
     if not releases:
-        sys.exit(">> No tags/releases found :(\n")
+        sys.exit(">> No releases found :(\n")
 
     latestTag = releases[0]["tag_name"]
 
     if not latestTag:
-        sys.exit(">> No tag_name found :(\n")
+        sys.exit(">> Latest release not found :(\n")
 
     print(f">> Repo has tags, found: {latestTag}!")
 
     try:
         numericTag = latestTag.lstrip("v")
         latestTag = eval(latestTag)
-        print(">> Successfully processed latest tag!\n")
     except:
-        sys.exit(">> Tag isn't numerical :(\n")
+        print(">> Tag isn't numerical :(, is it 'nightly'?")
+        # May make a bug tracker for this specific bit
+        sys.exit("Til next time\n")
 
-    insertRepoData(latestTag)
+    print(">> Successfully processed latest tag!\n")
+    insertRepoData(repo, latestTag)
 
 
 def testExistance():
+    print("> Testing connection...")
+    testUrl = f"https://api.github.com"
+    test = requests.get(testUrl)
+    if (test.status_code != 200):
+        sys.exit(">> No connection :(, is your intenet or github down?\n")
+
     repo = sys.argv[2]
     repoUrl = f"https://api.github.com/repos/{repo}"
-    print(f"> Probing: {repoUrl}")
-    test = requests.get(repoUrl)
+    print(f"> Probing: {repoUrl}...")
 
-    if (test.status_code == 200):
-        print(">> Repo exists!\n")
-        fetchTag(repoUrl)
-    else:
-        print(">> Repo either doesn't exist or the name is misinput :( ")
+    repoTest = requests.get(repoUrl)
+    if (repoTest.status_code != 200):
+        print(">> Repo doesn't exist or you mispelt the name :( ")
         sys.exit(">> Please try again \n")
+
+    print(">> Repo exists!\n")
+    fetchTag(repo, repoUrl)
 
 
 def listRepos():
@@ -110,10 +136,6 @@ def displayChanges():
 
 
 def main():
-    dbLoc = Path("./packages.db")
-    if not dbLoc.is_file():
-        createTable()
-
     if (len(sys.argv) == 1):
         menu()
 
@@ -127,15 +149,15 @@ def main():
         if(len(sys.argv) == 3):
             testExistance()
         else:
-            print("> Incorrect arguments\n")
             menu()
+            print("> Incorrect arguments\n")
 
     elif (sys.argv[1] == "-r" or sys.argv[1] == "--remove"):
         if(len(sys.argv) == 3):
             rmPackage()
         else:
-            print("> Incorrect arguments\n")
             menu()
+            print("> Incorrect arguments\n")
 
     elif (sys.argv[1] == "-l" or sys.argv[1] == "--list"):
         listRepos()
@@ -146,5 +168,11 @@ def main():
     elif (sys.argv[1] == "-d" or sys.argv[1] == "--display"):
         displayChanges()
 
+    else:
+        menu()
+        sys.exit("> Incorrect option chosen\n")
+
+
 if __name__ == "__main__":
     main()
+
