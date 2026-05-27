@@ -47,7 +47,7 @@ def createTable():
 import sys
 from pathlib import Path
 
-def insertRepoData(repo, latestTag):
+def insertRepoData(repo, latestTag, tagDate):
     dbLoc = Path("./data.db")
     if not dbLoc.is_file():
         createTable()
@@ -56,8 +56,8 @@ def insertRepoData(repo, latestTag):
 
     with sqlite3.connect('data.db') as conn:
         conn.execute(
-            "INSERT INTO REPOSITORIES (repo, version) VALUES (?, ?);",
-            (repo, latestTag)
+            "INSERT INTO REPOSITORIES (repo, version, lastUpdate) VALUES (?, ?, ?);",
+            (repo, latestTag, tagDate)
         )
 
     print(">> Successfully inserted data!\n")
@@ -65,12 +65,14 @@ def insertRepoData(repo, latestTag):
 
 import requests 
 
-def fetchTag(repo, repoUrl):
+def fetchTag(repo, repoUrl, tagNum):
     import json
     import re
+    import datetime
 
     print("> Fetching latest release tag...")
     releasesUrl = f"{repoUrl}/releases"
+
     releasesApi = requests.get(releasesUrl)
 
     if (releasesApi.status_code != 200):
@@ -81,24 +83,43 @@ def fetchTag(repo, repoUrl):
     if not releases:
         sys.exit(">> No releases found")
 
-    latestTag = releases[0]["tag_name"]
+    # These 2 below will hit into problems once there isn't 
+    # any more tags left, I need to check for the number of
+    # "tag_name"s there is.
+
+    latestTag = releases[tagNum]["tag_name"]
+    tagDate = releases[tagNum]["published_at"]
 
     if not latestTag:
         sys.exit(">> Latest release not found")
 
-    print(f">> Repo has tags, found: {latestTag}!")
+    print(f">> Repo has tags, found: {latestTag} ({tagDate})!")
 
-    try:
-        numericTag = latestTag.lstrip("v")
-        latestTag = eval(latestTag)
+    vExists = re.search("v", latestTag, re.IGNORECASE)
+    if vExists:
+        # latestTag = latestTag.lstrip("v")
+        latestTag = re.sub("v", "", latestTag)
+        print(f"> Processed latest tag: {latestTag}")
 
-    except:
-        print(">> Tag isn't numerical :(, is it 'nightly'?")
-        # May make a bug tracker for this specific bit
-        sys.exit("Til next time\n")
+    # Edge cases
+    else:
+        releaseCandidate = re.search("rc", latestTag, re.IGNORECASE)
+        if releaseCandidate:
+            tagNum += 1
+            return fetchTag(repo, repoUrl, tagNum)
+
+        nightly = re.search("nightly", latestTag, re.IGNORECASE)
+        if nightly:
+            tagNum += 1
+            return fetchTag(repo, repoUrl, tagNum)
+
+        continuous = re.search("continuous", latestTag, re.IGNORECASE)
+        if continuous:
+            tagNum += 1
+            return fetchTag(repo, repoUrl, tagNum)
 
     print(">> Successfully processed latest tag!\n")
-    insertRepoData(repo, latestTag)
+    insertRepoData(repo, latestTag, tagDate)
 
 
 def testExistance():
@@ -106,22 +127,27 @@ def testExistance():
     testUrl = f"https://api.github.com"
 
     test = requests.get(testUrl)
-    if (test.status_code != 200):
-        print(f"HTTP {test.status_code}...")
-        sys.exit(">> No connection, is your intenet or github down?")
+
+    if (test.status_code == 403 or test.status_code == 429):
+        sys.exit(f">> HTTP {test.status_code}: Too many requests")
+
+    elif (test.status_code != 200):
+        print(f"HTTP {test.status_code}")
+        sys.exit(">> Can't connect, is your intenet or github down?")
 
     repo = sys.argv[2]
     repoUrl = f"https://api.github.com/repos/{repo}"
     print(f"> Probing: {repoUrl}...")
 
     repoTest = requests.get(repoUrl)
-
     if (repoTest.status_code != 200):
         print(">> Repo doesn't exist or you mispelt the name")
         sys.exit(">> Please try again")
 
     print(">> Repo exists!\n")
-    fetchTag(repo, repoUrl)
+
+    tagNum = 0
+    fetchTag(repo, repoUrl, tagNum)
 
 
 def listRepos():
