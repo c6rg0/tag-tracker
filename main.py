@@ -1,10 +1,3 @@
-import sys
-import sqlite3
-from pathlib import Path
-import datetime
-import requests 
-import json
-
 def menu():
     print("Github tag tracker,")
     print("used to keep track of repo versions and updates.\n")
@@ -12,8 +5,8 @@ def menu():
     print("$ uv run main.py <argument> (<repo>)")
     print("     -h | --help: displays this menu,")
     print("     -v | --version: displays version,")
-    print("     -a | --add <repo>: adds repo (1) to be tracked,")
-    print("     -r | --remove <repo>: removes (1) repo from database,")
+    print("     -a | --add <repo>: adds repo a to be tracked,")
+    print("     -r | --remove <repo>: removes a repo from database,")
     print("     -l | --list: lists all repos added to database,")
     print("     -u | --update: updates repo tags,")
     print("     -d | --display: displays any recently updated tags.\n")
@@ -28,69 +21,77 @@ def version():
     print("Github tag tracker,")
     print("Version 0.1.0.")
 
+
+import sqlite3
+
 def createTable():
     print("> Creating table")
-    connectionObj = sqlite3.connect('packages.db')
-    cursorObj = connectionObj.cursor()
+    conn = sqlite3.connect('data.db')
+    cursor = conn.cursor()
 
+    # Might want to create an "OPTION" and "EDGE_CASE" table?
     tableCreationQuery = """
-        CREATE TABLE PACKAGES (
-            repo TEXT PRIMARY KEY,
-            version INT,
-            lastUpdate '%F' 
+        CREATE TABLE REPOSITORIES (
+            id INTEGER PRIMARY KEY,
+            repo TEXT,
+            version TEXT,
+            lastUpdate TEXT
         );
     """
+    cursor.execute(tableCreationQuery)
 
-    cursorObj.execute(tableCreationQuery)
     print(">> Table is Ready\n")
-    connectionObj.close()
+    conn.close()
 
+
+import sys
+from pathlib import Path
 
 def insertRepoData(repo, latestTag):
-    dbLoc = Path("./packages.db")
+    dbLoc = Path("./data.db")
     if not dbLoc.is_file():
         createTable()
 
     print("> Populating database with new entry...")
 
-    connectionObj = sqlite3.connect('packages.db')
-    cursorObj = connectionObj.cursor()
-
-    dataInsertQuery = """
-        INSERT INTO PACKAGES 
-        (repo, version)
-        VALUES (?, ?);
-    """
-
-    cursorObj.execute(dataInsertQuery, (repo, latestTag))
-    connectionObj.close()
+    with sqlite3.connect('data.db') as conn:
+        conn.execute(
+            "INSERT INTO REPOSITORIES (repo, version) VALUES (?, ?);",
+            (repo, latestTag)
+        )
 
     print(">> Successfully inserted data!\n")
 
 
+import requests 
+
 def fetchTag(repo, repoUrl):
+    import json
+    import re
+
     print("> Fetching latest release tag...")
     releasesUrl = f"{repoUrl}/releases"
     releasesApi = requests.get(releasesUrl)
 
     if (releasesApi.status_code != 200):
-        sys.exit(">> Repo doesn't have tags to add :(\n")
+        sys.exit(">> Repo doesn't have tags to add")
 
     releases = releasesApi.json()
 
     if not releases:
-        sys.exit(">> No releases found :(\n")
+        sys.exit(">> No releases found")
 
     latestTag = releases[0]["tag_name"]
 
     if not latestTag:
-        sys.exit(">> Latest release not found :(\n")
+        sys.exit(">> Latest release not found")
 
     print(f">> Repo has tags, found: {latestTag}!")
 
     try:
         numericTag = latestTag.lstrip("v")
         latestTag = eval(latestTag)
+
     except:
         print(">> Tag isn't numerical :(, is it 'nightly'?")
         # May make a bug tracker for this specific bit
@@ -103,18 +104,21 @@ def fetchTag(repo, repoUrl):
 def testExistance():
     print("> Testing connection...")
     testUrl = f"https://api.github.com"
+
     test = requests.get(testUrl)
     if (test.status_code != 200):
-        sys.exit(">> No connection :(, is your intenet or github down?\n")
+        print(f"HTTP {test.status_code}...")
+        sys.exit(">> No connection, is your intenet or github down?")
 
     repo = sys.argv[2]
     repoUrl = f"https://api.github.com/repos/{repo}"
     print(f"> Probing: {repoUrl}...")
 
     repoTest = requests.get(repoUrl)
+
     if (repoTest.status_code != 200):
-        print(">> Repo doesn't exist or you mispelt the name :( ")
-        sys.exit(">> Please try again \n")
+        print(">> Repo doesn't exist or you mispelt the name")
+        sys.exit(">> Please try again")
 
     print(">> Repo exists!\n")
     fetchTag(repo, repoUrl)
@@ -123,9 +127,10 @@ def testExistance():
 def listRepos():
     pass
 
+
 def rmRepoData():
     pass
- 
+
 
 def updateTags():
     pass
@@ -154,7 +159,7 @@ def main():
 
     elif (sys.argv[1] == "-r" or sys.argv[1] == "--remove"):
         if(len(sys.argv) == 3):
-            rmPackage()
+            rmRepoData()
         else:
             menu()
             print("> Incorrect arguments\n")
@@ -170,7 +175,7 @@ def main():
 
     else:
         menu()
-        sys.exit("> Incorrect option chosen\n")
+        sys.exit("> Incorrect option chosen")
 
 
 if __name__ == "__main__":

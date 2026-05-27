@@ -6,6 +6,12 @@
 - If a package has a new version, I want to know so that I can update it for my package manager 
 - Previously, I used the github home page, but I don't like it
 
+## How to run
+- Easy way:
+  - Install `astral-uv`, and run it using the command under the usage header.
+- The complicated way:
+  - Set the project up manually using the info given in `pyproject.toml` and `pip`.
+
 ## Usage:
 `$ uv run main.py <argument> (<repo>)`\
 `     -h | --help: displays this menu,`\
