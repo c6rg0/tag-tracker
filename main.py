@@ -151,11 +151,55 @@ def testExistance():
 
 
 def listRepos():
-    pass
+    from tabulate import tabulate
+
+    dbLoc = Path("./data.db")
+    if not dbLoc.is_file():
+        print("> Database not found, no repos to list")
+        sys.exit("> Please add a repo first") 
+
+    print("Repos in database:")
+
+    conn = sqlite3.connect('data.db')
+    cursor = conn.cursor()
+
+    listQuery = "SELECT * FROM REPOSITORIES;"
+    cursor.execute(listQuery)
+
+    rows = cursor.fetchall()
+    headers = [desc[0] for desc in cursor.description]
+    # tagDate = datetime.datetime.fromisoformat(tagDate.replace("Z", "+00:00"))
+    
+    print(tabulate(rows, headers=headers, tablefmt="rounded_outline"))
+    conn.close()
 
 
 def rmRepoData():
-    pass
+    dbLoc = Path("./data.db")
+    if not dbLoc.is_file():
+        print("> Database not found, no repos to remove")
+        sys.exit("> Please add a repo first") 
+        
+    print("> Removing repo data")
+    repo = sys.argv[2]
+
+    with sqlite3.connect('data.db') as conn:
+
+        # Check if repo exists in db...
+        exists = conn.execute(
+            "SELECT COUNT(*) FROM REPOSITORIES WHERE repo = ?;",
+            (repo,)
+        )
+
+        if (exists == 0):
+            sys.exit(">> Repo doesn't exist")
+
+        conn.execute(
+            "DELETE FROM REPOSITORIES WHERE repo = ?;",
+            (repo,)
+        )
+ 
+    print(">> Successfully removed data!")
 
 
 def updateTags():

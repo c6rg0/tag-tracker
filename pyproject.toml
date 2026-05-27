@@ -6,4 +6,5 @@ readme = "README.md"
 requires-python = ">=3.15"
 dependencies = [
     "requests>=2.34.2",
+    "tabulate>=0.10.0",
 ]
