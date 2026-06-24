@@ -1,35 +1,56 @@
+import sqlite3
+import sys
+from pathlib import Path
+import requests
+import re
+from tabulate import tabulate
+import getpass
+from dotenv import dotenv_values 
+import os
+
+
 def menu():
     print("Github tag tracker,")
     print("used to keep track of repo versions and updates.\n")
-    print("Usage: ")
-    print("$ uv run main.py <argument> (<repo>)")
-    print("     -h | --help: displays this menu,")
-    print("     -v | --version: displays version,")
-    print("     -a | --add <repo>: adds repo a to be tracked,")
-    print("     -r | --remove <repo>: removes a repo from database,")
-    print("     -l | --list: lists all repos added to database,")
-    print("     -u | --update: updates repo tags,")
-    print("     -d | --display: displays any recently updated tags.\n")
 
-    print("NOTE:")
+    print("Usage: ")
+    print("$ uv run main.py <argument> (<repo>)\n")
+
+    print("\t-h | --help: displays this menu,")
+    print("\t-v | --version: displays version,")
+    print("\t-a | --add <repo>: adds repo a to be tracked,")
+    print("\t-r | --remove <repo>: removes a repo from database,")
+    print("\t-l | --list: lists all repos added to database,")
+    print("\t-u | --update: updates repo tags,")
+    print("\t-d | --display: displays any recently updated tags.\n")
+
+    print("Note:")
     print("For <repo>, enter the 'creator/repo' that is found")
     print("at the end of a github link,")
     print("e.g. for 'https://github.com/swaywm/sway'")
     print("enter 'swaywm/sway'.\n")
+
+    print("GitHub API info:")
+    print("Without an API-token and with frequent usage, it's probable")
+    print("you'll encounter rate limits. If you want to make a token (to get")
+    print("more lenient rates), ensure it's a 'fine-grained personal access token'.\n")
+
+    print("To use an api token:")
+    print("1. Make a file named .env,")
+    print("2. Add the below to the file:")
+    print("\tAPI_KEY=YOUR_KEY\n")
+
 
 def version():
     print("Github tag tracker,")
     print("Version 0.1.0.")
 
 
-import sqlite3
-
 def createTable():
     print("> Creating table")
-    conn = sqlite3.connect('data.db')
+    conn = sqlite3.connect("data.db")
     cursor = conn.cursor()
 
-    # Might want to create an "OPTION" and "EDGE_CASE" table?
     tableCreationQuery = """
         CREATE TABLE REPOSITORIES (
             id INTEGER PRIMARY KEY,
@@ -38,14 +59,12 @@ def createTable():
             lastUpdate TEXT
         );
     """
-    cursor.execute(tableCreationQuery)
+
+    cursor.executescript(tableCreationQuery)
+    conn.commit()
 
     print(">> Table is Ready\n")
-    conn.close()
 
-
-import sys
-from pathlib import Path
 
 def insertRepoData(repo, latestTag, tagDate):
     dbLoc = Path("./data.db")
@@ -54,28 +73,27 @@ def insertRepoData(repo, latestTag, tagDate):
 
     print("> Populating database with new entry...")
 
-    with sqlite3.connect('data.db') as conn:
-        conn.execute(
-            "INSERT INTO REPOSITORIES (repo, version, lastUpdate) VALUES (?, ?, ?);",
-            (repo, latestTag, tagDate)
-        )
+    conn = sqlite3.connect("data.db")
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "INSERT INTO REPOSITORIES (repo, version, lastUpdate) VALUES (?, ?, ?);",
+        (repo, latestTag, tagDate),
+    )
+
+    conn.commit()
 
     print(">> Successfully inserted data!\n")
 
 
-import requests 
-
 def fetchTag(repo, repoUrl, tagNum):
-    import json
-    import re
-    import datetime
-
     print("> Fetching latest release tag...")
     releasesUrl = f"{repoUrl}/releases"
 
-    releasesApi = requests.get(releasesUrl)
+    token = fetchToken()
+    releasesApi = requests.get(releasesUrl, headers={"Authorization": f"TOK:<{token}>"})
 
-    if (releasesApi.status_code != 200):
+    if releasesApi.status_code != 200:
         sys.exit(">> Repo doesn't have tags to add")
 
     releases = releasesApi.json()
@@ -83,7 +101,7 @@ def fetchTag(repo, repoUrl, tagNum):
     if not releases:
         sys.exit(">> No releases found")
 
-    # These 2 below will hit into problems once there isn't 
+    # These 2 below will hit into problems once there isn't
     # any more tags left, I need to check for the number of
     # "tag_name"s there is.
 
@@ -124,14 +142,15 @@ def fetchTag(repo, repoUrl, tagNum):
 
 def testExistance():
     print("> Testing connection...")
-    testUrl = f"https://api.github.com"
+    testUrl = "https://api.github.com"
 
-    test = requests.get(testUrl)
+    token = fetchToken()
+    test = requests.get(testUrl, headers={"Authorization": f"TOK:<{token}>"})
 
-    if (test.status_code == 403 or test.status_code == 429):
+    if test.status_code == 403 or test.status_code == 429:
         sys.exit(f">> HTTP {test.status_code}: Too many requests")
 
-    elif (test.status_code != 200):
+    elif test.status_code != 200:
         print(f"HTTP {test.status_code}")
         sys.exit(">> Can't connect, is your intenet or github down?")
 
@@ -139,8 +158,9 @@ def testExistance():
     repoUrl = f"https://api.github.com/repos/{repo}"
     print(f"> Probing: {repoUrl}...")
 
-    repoTest = requests.get(repoUrl)
-    if (repoTest.status_code != 200):
+    repoTest = requests.get(repoUrl, headers={"Authorization": f"TOK:<{token}>"})
+
+    if repoTest.status_code != 200:
         print(">> Repo doesn't exist or you mispelt the name")
         sys.exit(">> Please try again")
 
@@ -150,17 +170,26 @@ def testExistance():
     fetchTag(repo, repoUrl, tagNum)
 
 
-def listRepos():
-    from tabulate import tabulate
+def fetchToken():
+    env = dotenv_values(".env")
+    token = env.get("TOKEN")
 
+    if not token:
+        print(">> No API token found...")
+        token = ""
+
+    return token
+
+
+def listRepos():
     dbLoc = Path("./data.db")
     if not dbLoc.is_file():
         print("> Database not found, no repos to list")
-        sys.exit("> Please add a repo first") 
+        sys.exit("> Please add a repo first")
 
     print("Repos in database:")
 
-    conn = sqlite3.connect('data.db')
+    conn = sqlite3.connect("data.db")
     cursor = conn.cursor()
 
     listQuery = "SELECT * FROM REPOSITORIES;"
@@ -169,7 +198,7 @@ def listRepos():
     rows = cursor.fetchall()
     headers = [desc[0] for desc in cursor.description]
     # tagDate = datetime.datetime.fromisoformat(tagDate.replace("Z", "+00:00"))
-    
+
     print(tabulate(rows, headers=headers, tablefmt="rounded_outline"))
     conn.close()
 
@@ -178,27 +207,22 @@ def rmRepoData():
     dbLoc = Path("./data.db")
     if not dbLoc.is_file():
         print("> Database not found, no repos to remove")
-        sys.exit("> Please add a repo first") 
-        
+        sys.exit("> Please add a repo first")
+
     print("> Removing repo data")
     repo = sys.argv[2]
 
-    with sqlite3.connect('data.db') as conn:
-
+    with sqlite3.connect("data.db") as conn:
         # Check if repo exists in db...
         exists = conn.execute(
-            "SELECT COUNT(*) FROM REPOSITORIES WHERE repo = ?;",
-            (repo,)
+            "SELECT COUNT(*) FROM REPOSITORIES WHERE repo = ?;", (repo,)
         )
 
-        if (exists == 0):
+        if exists == 0:
             sys.exit(">> Repo doesn't exist")
 
-        conn.execute(
-            "DELETE FROM REPOSITORIES WHERE repo = ?;",
-            (repo,)
-        )
- 
+        conn.execute("DELETE FROM REPOSITORIES WHERE repo = ?;", (repo,))
+
     print(">> Successfully removed data!")
 
 
@@ -211,38 +235,45 @@ def displayChanges():
 
 
 def main():
-    if (len(sys.argv) == 1):
+    if len(sys.argv) == 1:
         menu()
 
-    elif (sys.argv[1] == "-h" or sys.argv[1] == "--help"):
-         menu()
+    # Help
+    elif sys.argv[1] == "-h" or sys.argv[1] == "--help":
+        menu()
 
-    elif (sys.argv[1] == "-v" or sys.argv[1] == "--version"):
+    # Version
+    elif sys.argv[1] == "-v" or sys.argv[1] == "--version":
         version()
 
-    elif (sys.argv[1] == "-a" or sys.argv[1] == "--add"):
-        if(len(sys.argv) == 3):
+    # Add repo
+    elif sys.argv[1] == "-a" or sys.argv[1] == "--add":
+        if len(sys.argv) == 3:
             testExistance()
         else:
             menu()
             print("> Incorrect arguments\n")
 
-    elif (sys.argv[1] == "-r" or sys.argv[1] == "--remove"):
-        if(len(sys.argv) == 3):
+    # Remove repo
+    elif sys.argv[1] == "-r" or sys.argv[1] == "--remove":
+        if len(sys.argv) == 3:
             rmRepoData()
         else:
             menu()
             print("> Incorrect arguments\n")
 
-    elif (sys.argv[1] == "-l" or sys.argv[1] == "--list"):
+    # List repo
+    elif sys.argv[1] == "-l" or sys.argv[1] == "--list":
         listRepos()
 
-    elif (sys.argv[1] == "-u" or sys.argv[1] == "--update"):
+    elif sys.argv[1] == "-u" or sys.argv[1] == "--update":
         updateTags()
 
-    elif (sys.argv[1] == "-d" or sys.argv[1] == "--display"):
+    # Display most recent tag changes
+    elif sys.argv[1] == "-d" or sys.argv[1] == "--display":
         displayChanges()
 
+    # Exception
     else:
         menu()
         sys.exit("> Incorrect option chosen")
@@ -250,4 +281,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
